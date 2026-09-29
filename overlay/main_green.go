@@ -17,6 +17,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -29,7 +30,10 @@ import (
 	cli "github.com/urfave/cli/v2"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
@@ -256,12 +260,16 @@ func start(c *cli.Context, f *Flags) error {
 }
 
 func continuouslySyncConfigChanges(clientset kubernetes.Interface, config *SyncableConfig, f *Flags) chan struct{} {
-	listWatch := cache.NewListWatchFromClient(
-		clientset.CoreV1().RESTClient(),
-		ResourceNodes,
-		v1.NamespaceAll,
-		fields.OneTermEqualSelector("metadata.name", f.NodeName),
-	)
+	listWatch := &cache.ListWatch{
+		ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+			options.FieldSelector = fields.OneTermEqualSelector("metadata.name", f.NodeName).String()
+			return clientset.CoreV1().Nodes().List(context.TODO(), options)
+		},
+		WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+			options.FieldSelector = fields.OneTermEqualSelector("metadata.name", f.NodeName).String()
+			return clientset.CoreV1().Nodes().Watch(context.TODO(), options)
+		},
+	}
 
 	_, controller := cache.NewInformerWithOptions(
 		cache.InformerOptions{
