@@ -1,9 +1,13 @@
-name: cache-sync-verify
+name: argmax-nan-verify
 on:
   workflow_dispatch:
     inputs:
-      variant:
-        description: "red (interface-only) or green (fix)"
+      overlay_url:
+        description: "URL of standard.py overlay (empty = upstream main as-is)"
+        required: false
+        type: string
+      expect:
+        description: "red or green"
         required: true
         type: string
 
@@ -11,23 +15,31 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout upstream k8s-device-plugin at pinned SHA
+      - name: Checkout upstream triton at pinned SHA
         uses: actions/checkout@v4
         with:
-          repository: NVIDIA/k8s-device-plugin
-          ref: 9980b1674bdc972f64f7cc6a51811fb48e19be89
-      - uses: actions/setup-go@v5
+          repository: triton-lang/triton
+          ref: 86b92b86e96d18d415418d6ccfdd33f77129b1f9
+      - uses: actions/setup-python@v5
         with:
-          go-version-file: go.mod
-      - name: Overlay config-manager files
+          python-version: "3.12"
+      - name: Install triton (prebuilt wheel)
         run: |
           set -euo pipefail
-          VARIANT=${{ inputs.variant }}
-          BASE=https://raw.githubusercontent.com/CodeAlex52/kdp-sync-verify/main
-          curl -fsSL "$BASE/overlay/main_$VARIANT.go" -o cmd/config-manager/main.go
-          curl -fsSL "$BASE/overlay/main_test.go" -o cmd/config-manager/main_test.go
-          gofmt -l ./cmd/config-manager/ || true
-      - name: Run cache-sync regression test
+          pip install --upgrade pip
+          pip install triton numpy torch --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      - name: Overlay standard.py
+        if: ${{ inputs.overlay_url != '' }}
         run: |
           set -euo pipefail
-          go test ./cmd/config-manager/ -run TestContinuouslySyncConfigChangesWaitsForCacheSync -v 2>&1 | tee cache-sync.log
+          SITE=$(python -c "import triton, os; print(os.path.dirname(triton.__file__))")
+          curl -fsSL "${{ inputs.overlay_url }}" -o "$SITE/language/standard.py"
+          echo "overlaid $SITE/language/standard.py"
+      - name: Fetch probe script
+        run: |
+          set -euo pipefail
+          curl -fsSL "https://raw.githubusercontent.com/CodeAlex52/triton-argmax-nan-verify/main/check_combine.py" -o check_combine.py
+      - name: Run combine-semantics probe
+        run: |
+          set -euo pipefail
+          TRITON_INTERPRET=1 python check_combine.py 2>&1 | tee combine-check.log
