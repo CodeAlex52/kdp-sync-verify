@@ -1,0 +1,1 @@
+RED/GREEN verification (cloud-only, disposable) for the k8s-device-plugin config-manager cache-sync fix (#2066).
