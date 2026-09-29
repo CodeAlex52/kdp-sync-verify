@@ -1,0 +1,33 @@
+name: cache-sync-verify
+on:
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: "red (interface-only) or green (fix)"
+        required: true
+        type: string
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout upstream k8s-device-plugin at pinned SHA
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/k8s-device-plugin
+          ref: 9980b1674bdc972f64f7cc6a51811fb48e19be89
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Overlay config-manager files
+        run: |
+          set -euo pipefail
+          VARIANT=${{ inputs.variant }}
+          BASE=https://raw.githubusercontent.com/CodeAlex52/kdp-sync-verify/main
+          curl -fsSL "$BASE/overlay/main_$VARIANT.go" -o cmd/config-manager/main.go
+          curl -fsSL "$BASE/overlay/main_test.go" -o cmd/config-manager/main_test.go
+          gofmt -l ./cmd/config-manager/ || true
+      - name: Run cache-sync regression test
+        run: |
+          set -euo pipefail
+          go test ./cmd/config-manager/ -run TestContinuouslySyncConfigChangesWaitsForCacheSync -v 2>&1 | tee cache-sync.log
